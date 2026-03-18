@@ -120,7 +120,7 @@ export default function AuthorPage({
 
   const crumbs = useMemo(
     () => [
-      { label: "المؤلفون", href: "/authors" },
+      { label: "المشايخ", href: "/authors" },
       { label: author?.name ?? "..." },
     ],
     [author?.name],
@@ -143,7 +143,7 @@ export default function AuthorPage({
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
           {continueTarget
-            ? "سيتم فتح آخر درس وصلت له داخل هذا المؤلف."
+            ? "سيتم فتح آخر درس وصلت له عند الشيخ."
             : "لا يوجد تقدم محفوظ لهذا المؤلف بعد."}
         </CardContent>
       </Card>

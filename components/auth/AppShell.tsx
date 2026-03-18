@@ -1,11 +1,11 @@
-// components/AppShell.tsx
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { Menu } from "lucide-react";
 
 import { auth, db } from "@/lib/firebase.client";
@@ -13,6 +13,7 @@ import { logout } from "@/lib/auth";
 
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Sheet,
   SheetContent,
@@ -24,6 +25,7 @@ import {
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [adminDocExists, setAdminDocExists] = useState(false);
+  const [xpTotal, setXpTotal] = useState(0);
   const pathname = usePathname();
 
   useEffect(() => {
@@ -31,6 +33,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => unsub();
   }, []);
 
+  // التحقق من الأدمن
   useEffect(() => {
     if (!user) return;
 
@@ -46,27 +49,46 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [user]);
 
-  const isAdmin = useMemo(
-    () => !!user && adminDocExists,
-    [user, adminDocExists],
-  );
+  // ✅ تحميل XP مباشر من users/{uid}
+  useEffect(() => {
+    if (!user) return;
+
+    const userRef = doc(db, "users", user.uid);
+    const unsub = onSnapshot(userRef, (snap) => {
+      const data = snap.exists() ? (snap.data() as any) : {};
+      setXpTotal(Number(data?.xpTotal ?? 0));
+    });
+
+    return () => unsub();
+  }, [user]);
+
+  const isAdmin = !!user && adminDocExists;
 
   const nav = useMemo(
     () => [
-      { href: "/authors", label: "المؤلفون" },
+      { href: "/authors", label: "المشايخ" },
       ...(isAdmin ? [{ href: "/admin/setup", label: "لوحة الإدارة" }] : []),
     ],
     [isAdmin],
   );
 
+  const userDisplayName = useMemo(() => {
+    if (!user) return "";
+    if (user.displayName?.trim()) return user.displayName.trim();
+    if (user.email) return user.email.split("@")[0];
+    return "مستخدم";
+  }, [user]);
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b">
         <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between gap-3">
-          <Link href="/authors" className="font-bold">
-            منصة د. عصام
+          {/* Brand */}
+          <Link href="/authors" className="font-bold shrink-0">
+            روض الهدى
           </Link>
 
+          {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-2">
             {nav.map((item) => {
               const active = pathname?.startsWith(item.href);
@@ -83,9 +105,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          <div className="flex items-center gap-2">
+          {/* Actions */}
+          <div className="flex items-center gap-2 min-w-0">
+            {/* ✅ ترحيب + XP (Desktop) */}
+            {user ? (
+              <div className="hidden md:flex items-center gap-2">
+                <span className="text-sm text-muted-foreground truncate max-w-45">
+                  مرحبًا، {userDisplayName}
+                </span>
+                <Badge variant="secondary">XP: {xpTotal}</Badge>
+              </div>
+            ) : null}
+
             <ThemeToggle />
 
+            {/* Mobile drawer */}
             <div className="md:hidden">
               <Sheet>
                 <SheetTrigger asChild>
@@ -98,6 +132,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   <SheetHeader>
                     <SheetTitle>القائمة</SheetTitle>
                   </SheetHeader>
+
+                  {/* ✅ ترحيب + XP (Mobile) */}
+                  {user ? (
+                    <div className="mt-4 rounded-lg border p-3 space-y-2">
+                      <div className="text-sm font-medium truncate">
+                        مرحبًا، {userDisplayName}
+                      </div>
+                      <Badge variant="secondary">XP: {xpTotal}</Badge>
+                    </div>
+                  ) : null}
 
                   <div className="mt-4 grid gap-2">
                     {nav.map((item) => {
@@ -128,6 +172,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </Sheet>
             </div>
 
+            {/* Desktop logout */}
             {user ? (
               <Button
                 className="hidden md:inline-flex"

@@ -7,9 +7,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import {
   collection,
-  doc,
   getCountFromServer,
-  getDoc,
   onSnapshot,
   query,
   where,
@@ -38,6 +36,7 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 
 type ProgMap = Record<string, { completed: boolean; lastPositionSec: number }>;
 
@@ -60,7 +59,6 @@ export default function BookPage({
 
   const [attemptId, setAttemptId] = useState<string | null>(null);
 
-  // ✅ عداد الختمات المكتملة (نسخة بسيطة)
   const [completedAttemptsCount, setCompletedAttemptsCount] =
     useState<number>(0);
 
@@ -114,13 +112,12 @@ export default function BookPage({
     return () => unsub();
   }, [uid, attemptId]);
 
-  // 3) ✅ عداد الختمات المكتملة (Attempts status=completed لنفس الكتاب)
+  // 3) عداد الختمات المكتملة لهذا الكتاب
   useEffect(() => {
     if (!uid) return;
 
     (async () => {
       const attemptsCol = collection(db, "users", uid, "attempts");
-
       const qCompleted = query(
         attemptsCol,
         where("authorId", "==", authorId),
@@ -129,20 +126,13 @@ export default function BookPage({
         where("status", "==", "completed"),
       );
 
-      // Count aggregation (مع fallback آمن)
       try {
         const agg = await getCountFromServer(qCompleted);
         setCompletedAttemptsCount(agg.data().count);
       } catch {
-        // fallback: عدّ يدوي (مقبول جدًا مع عدد مستخدمين قليل)
-        // eslint-disable-next-line prefer-const
-        let count = 0;
-        // لا يوجد getDocs هنا ضمن imports للفكرة "كامل"؟ سنستخدم حل بديل:
-        // نقرأ docs عبر snapshot صغير مرة واحدة
         const unsub = onSnapshot(qCompleted, (snap) => {
           setCompletedAttemptsCount(snap.size);
         });
-        // return cleanup
         return () => unsub();
       }
     })();
@@ -155,6 +145,19 @@ export default function BookPage({
     }
     return lessons[0] ?? null;
   }, [lessons, prog]);
+
+  const completedLessonsCount = useMemo(() => {
+    if (lessons.length === 0) return 0;
+    return lessons.reduce(
+      (acc, l) => (prog[l.id]?.completed ? acc + 1 : acc),
+      0,
+    );
+  }, [lessons, prog]);
+
+  const progressPercent = useMemo(() => {
+    if (lessons.length === 0) return 0;
+    return Math.round((completedLessonsCount / lessons.length) * 100);
+  }, [completedLessonsCount, lessons.length]);
 
   const isAttemptCompleted = useMemo(() => {
     if (lessons.length === 0) return false;
@@ -204,18 +207,31 @@ export default function BookPage({
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="flex flex-wrap gap-2">
-          <Button onClick={handleContinue} disabled={!continueLesson}>
-            تابع
-          </Button>
+        <CardContent className="space-y-4">
+          {/* شريط التقدم */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span>تقدم الكتاب</span>
+              <span>
+                {completedLessonsCount} / {lessons.length} ({progressPercent}%)
+              </span>
+            </div>
+            <Progress value={progressPercent} />
+          </div>
 
-          <Button
-            variant="outline"
-            onClick={handleNewAttempt}
-            disabled={!isAttemptCompleted}
-          >
-            ختمة جديدة
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={handleContinue} disabled={!continueLesson}>
+              تابع
+            </Button>
+
+            <Button
+              variant="outline"
+              onClick={handleNewAttempt}
+              disabled={!isAttemptCompleted}
+            >
+              ختمة جديدة
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

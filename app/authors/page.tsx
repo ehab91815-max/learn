@@ -13,7 +13,7 @@ export default function AuthorsPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-4 space-y-3">
-      <h1 className="text-2xl font-bold">المؤلفون</h1>
+      <h1 className="text-2xl font-bold">المشايخ</h1>
 
       <div className="grid gap-3">
         {authors.map((a) => (

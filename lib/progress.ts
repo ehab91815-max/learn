@@ -3,9 +3,9 @@
 import {
   doc,
   getDoc,
+  increment,
+  runTransaction,
   serverTimestamp,
-  setDoc,
-  updateDoc,
 } from "firebase/firestore";
 import { db } from "./firebase.client";
 
@@ -32,23 +32,44 @@ export async function saveLessonProgress(
   lessonId: string,
   patch: Partial<LessonProgress>
 ): Promise<void> {
-  // 1) احفظ Progress
   const progressRef = doc(db, "users", uid, "attempts", attemptId, "progress", lessonId);
-  await setDoc(progressRef, { ...patch, updatedAt: serverTimestamp() }, { merge: true });
-
-  // 2) حدّث Attempt (ليعمل زر "تابع" في صفحة المؤلف)
   const attemptRef = doc(db, "users", uid, "attempts", attemptId);
+  const userRef = doc(db, "users", uid);
 
   const lastPositionSec =
     typeof patch.lastPositionSec === "number" ? Math.max(0, Math.floor(patch.lastPositionSec)) : undefined;
 
-  const updatePayload: Record<string, any> = {
-    lastActivityAt: serverTimestamp(),
-    lastLessonId: lessonId,
-  };
+  await runTransaction(db, async (tx) => {
+    const prevSnap = await tx.get(progressRef);
+    const prev = prevSnap.exists() ? (prevSnap.data() as any) : null;
 
-  if (lastPositionSec !== undefined) updatePayload.lastPositionSec = lastPositionSec;
-  if (patch.completed === true) updatePayload.lastCompletedLessonId = lessonId;
+    const wasCompleted = !!prev?.completed;
+    const nowCompleted = patch.completed === true;
 
-  await updateDoc(attemptRef, updatePayload);
+    // 1) حفظ progress
+    tx.set(
+      progressRef,
+      { ...patch, updatedAt: serverTimestamp() },
+      { merge: true }
+    );
+
+    // 2) تحديث attempt (لزر تابع)
+    const updatePayload: Record<string, any> = {
+      lastActivityAt: serverTimestamp(),
+      lastLessonId: lessonId,
+    };
+    if (lastPositionSec !== undefined) updatePayload.lastPositionSec = lastPositionSec;
+    if (nowCompleted) updatePayload.lastCompletedLessonId = lessonId;
+
+    tx.update(attemptRef, updatePayload);
+
+    // 3) ✅ XP: +10 فقط أول مرة يتحول فيها الدرس إلى completed
+    if (nowCompleted && !wasCompleted) {
+      tx.set(
+        userRef,
+        { xpTotal: increment(10), updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+    }
+  });
 }
