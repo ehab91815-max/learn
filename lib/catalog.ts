@@ -38,9 +38,6 @@ export type Book = {
   hasBookQuiz?: boolean;
 };
 
-// lib/catalog.ts  (تعديل النوع فقط)
-// غيّر Lesson.media ليشمل youtube
-
 export type Lesson = {
   id: string;
   title: string;
@@ -57,6 +54,10 @@ export type Lesson = {
         type: "youtube";
         videoId: string;
         startAtSec?: number;
+      }
+    | {
+        type: "pdf";
+        r2Key: string;
       };
 };
 

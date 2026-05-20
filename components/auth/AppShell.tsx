@@ -67,7 +67,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const nav = useMemo(
     () => [
       { href: "/authors", label: "المشايخ" },
-      ...(isAdmin ? [{ href: "/admin/setup", label: "لوحة الإدارة" }] : []),
+      ...(isAdmin ? [{ href: "/admin", label: "لوحة الإدارة" }] : []),
     ],
     [isAdmin],
   );

@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+pnpm-lock.yaml
 /.pnp
 .pnp.*
 .yarn/*
@@ -39,3 +40,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+
+
+
+#custom
+r2.md
+/scripts
+
