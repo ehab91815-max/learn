@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { listAuthors, Author } from "@/lib/catalog";
 import EntityCard from "@/components/ui/EntityCard";
-
+// import InstallAppButton from "@/components/pwa/InstallAppButton";
+import PwaInstallButton from "@/components/pwa/InstallAppButton";
 export default function AuthorsPage() {
   const [authors, setAuthors] = useState<Author[]>([]);
 
@@ -20,6 +21,7 @@ export default function AuthorsPage() {
           <EntityCard key={a.id} href={`/authors/${a.id}`} title={a.name} />
         ))}
       </div>
+      <PwaInstallButton />
     </main>
   );
 }

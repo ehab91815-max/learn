@@ -4,6 +4,8 @@ import AuthGate from "@/components/auth/AuthGate";
 import { Providers } from "./providers";
 import AppShell from "@/components/auth/AppShell";
 import { Tajawal } from "next/font/google";
+import PwaRegister from "@/components/pwa/PwaRegister";
+
 
 const tajawal = Tajawal({
   subsets: ["arabic"],
@@ -25,6 +27,7 @@ export default function RootLayout({
     >
       <body>
         <Providers>
+          <PwaRegister />
           <AuthGate>
             <AppShell>{children}</AppShell>
           </AuthGate>
