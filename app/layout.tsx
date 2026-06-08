@@ -6,7 +6,6 @@ import AppShell from "@/components/auth/AppShell";
 import { Tajawal } from "next/font/google";
 import PwaRegister from "@/components/pwa/PwaRegister";
 
-
 const tajawal = Tajawal({
   subsets: ["arabic"],
   weight: ["200", "300", "400", "500", "700", "800", "900"],
