@@ -229,8 +229,8 @@ export default function LessonPage({
   const [media, setMedia] = useState<any>(null);
 
   const [initialTime, setInitialTime] = useState<number>(0);
+  const [initialPdfPage, setInitialPdfPage] = useState<number>(1);
   const [completed, setCompleted] = useState<boolean>(false);
-  const [isCompletingPdf, setIsCompletingPdf] = useState<boolean>(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUid(u?.uid ?? null));
@@ -259,9 +259,11 @@ export default function LessonPage({
       const p = await getLessonProgress(uid, a.id, lessonId);
       if (p) {
         setInitialTime(Number(p.lastPositionSec ?? 0));
+        setInitialPdfPage(Number(p.lastPageNumber ?? p.lastPositionSec ?? 1));
         setCompleted(!!p.completed);
       } else {
         setInitialTime(0);
+        setInitialPdfPage(1);
         setCompleted(false);
       }
     })();
@@ -273,6 +275,7 @@ export default function LessonPage({
       if (completed) return;
       await saveLessonProgress(uid, attemptId, lessonId, {
         lastPositionSec: Math.max(0, Math.floor(sec)),
+        lastProgressKind: "time",
       });
     },
     [uid, attemptId, lessonId, completed],
@@ -284,6 +287,7 @@ export default function LessonPage({
     await saveLessonProgress(uid, attemptId, lessonId, {
       completed: true,
       lastPositionSec: 0,
+      lastProgressKind: "time",
     });
 
     setCompleted(true);
@@ -294,28 +298,33 @@ export default function LessonPage({
       if (!uid || !attemptId) return;
 
       await saveLessonProgress(uid, attemptId, lessonId, {
-        lastPositionSec: Math.max(1, Math.floor(page)),
+        lastPageNumber: Math.max(1, Math.floor(page)),
+        lastProgressKind: "page",
       });
+
+      setInitialPdfPage(Math.max(1, Math.floor(page)));
     },
     [uid, attemptId, lessonId],
   );
 
-  const handleCompletePdf = useCallback(async () => {
-    if (completed) return;
-    if (!uid || !attemptId) return;
+  const handleCompletePdf = useCallback(
+    async (page: number) => {
+      if (completed) return;
+      if (!uid || !attemptId) return;
 
-    setIsCompletingPdf(true);
-    try {
+      const pageNumber = Math.max(1, Math.floor(page));
+
       await saveLessonProgress(uid, attemptId, lessonId, {
         completed: true,
-        lastPositionSec: 0,
+        lastPageNumber: pageNumber,
+        lastProgressKind: "page",
       });
 
+      setInitialPdfPage(pageNumber);
       setCompleted(true);
-    } finally {
-      setIsCompletingPdf(false);
-    }
-  }, [uid, attemptId, lessonId, completed]);
+    },
+    [uid, attemptId, lessonId, completed],
+  );
 
   const crumbs = useMemo(
     () => [
@@ -383,11 +392,11 @@ export default function LessonPage({
             <PdfLessonViewer
               src={pdfUrl}
               title={title}
-              initialPage={initialTime > 0 ? initialTime : 1}
+              initialPage={initialPdfPage}
               completed={completed}
               disabled={!uid || !attemptId}
               onSavePage={handleSavePdfPage}
-              onComplete={handleEnded}
+              onComplete={handleCompletePdf}
             />
           ) : null}
 

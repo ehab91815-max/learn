@@ -20,6 +20,8 @@ import { getAuthor, listBranches, Author, Branch } from "@/lib/catalog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+type ProgressKind = "time" | "page";
+
 type AttemptLite = {
   id: string;
   authorId: string;
@@ -28,7 +30,54 @@ type AttemptLite = {
   status: "active" | "completed";
   lastActivityAt?: any;
   lastLessonId?: string;
+  lastPositionSec?: number;
+  lastPageNumber?: number;
+  lastProgressKind?: ProgressKind;
 };
+
+type ContinueTarget = {
+  authorId: string;
+  branchId: string;
+  bookId: string;
+  lessonId: string;
+  lastPositionSec?: number;
+  lastPageNumber?: number;
+  lastProgressKind?: ProgressKind;
+};
+
+function formatSeconds(sec: number) {
+  const safe = Math.max(0, Math.floor(sec));
+
+  if (safe < 60) {
+    return `${safe} ثانية`;
+  }
+
+  const minutes = Math.floor(safe / 60);
+  const seconds = safe % 60;
+
+  if (seconds === 0) {
+    return `${minutes} دقيقة`;
+  }
+
+  return `${minutes} دقيقة و ${seconds} ثانية`;
+}
+
+function getContinueProgressText(target: ContinueTarget | null) {
+  if (!target) return "لا يوجد تقدم محفوظ لهذا المؤلف بعد.";
+
+  if (target.lastProgressKind === "page") {
+    const pageNumber =
+      typeof target.lastPageNumber === "number"
+        ? target.lastPageNumber
+        : typeof target.lastPositionSec === "number"
+          ? target.lastPositionSec
+          : 1;
+
+    return `آخر صفحة ${Math.max(1, Math.floor(pageNumber))}`;
+  }
+
+  return `آخر نقطة ${formatSeconds(target.lastPositionSec ?? 0)}`;
+}
 
 export default function AuthorPage({
   params,
@@ -41,12 +90,9 @@ export default function AuthorPage({
   const [uid, setUid] = useState<string | null>(null);
   const [author, setAuthor] = useState<Author | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [continueTarget, setContinueTarget] = useState<{
-    authorId: string;
-    branchId: string;
-    bookId: string;
-    lessonId: string;
-  } | null>(null);
+  const [continueTarget, setContinueTarget] = useState<ContinueTarget | null>(
+    null,
+  );
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUid(u?.uid ?? null));
@@ -86,6 +132,9 @@ export default function AuthorPage({
           branchId: a.branchId,
           bookId: a.bookId,
           lessonId: a.lastLessonId,
+          lastPositionSec: a.lastPositionSec,
+          lastPageNumber: a.lastPageNumber,
+          lastProgressKind: a.lastProgressKind,
         });
         return;
       }
@@ -93,6 +142,7 @@ export default function AuthorPage({
       const pSnap = await getDocs(
         collection(db, "users", uid, "attempts", a.id, "progress"),
       );
+
       const firstIncomplete = pSnap.docs.find(
         (d) => !(d.data() as any)?.completed,
       );
@@ -102,17 +152,23 @@ export default function AuthorPage({
         return;
       }
 
+      const progress = firstIncomplete.data() as any;
+
       setContinueTarget({
         authorId,
         branchId: a.branchId,
         bookId: a.bookId,
         lessonId: firstIncomplete.id,
+        lastPositionSec: progress.lastPositionSec,
+        lastPageNumber: progress.lastPageNumber,
+        lastProgressKind: progress.lastProgressKind,
       });
     })();
   }, [uid, authorId]);
 
   function handleContinue() {
     if (!continueTarget) return;
+
     router.push(
       `/authors/${continueTarget.authorId}/branches/${continueTarget.branchId}/books/${continueTarget.bookId}/lessons/${continueTarget.lessonId}`,
     );
@@ -124,6 +180,11 @@ export default function AuthorPage({
       { label: author?.name ?? "..." },
     ],
     [author?.name],
+  );
+
+  const continueProgressText = useMemo(
+    () => getContinueProgressText(continueTarget),
+    [continueTarget],
   );
 
   return (
@@ -141,10 +202,18 @@ export default function AuthorPage({
             {author?.name ?? "..."}
           </CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          {continueTarget
-            ? "سيتم فتح آخر درس وصلت له عند الشيخ."
-            : "لا يوجد تقدم محفوظ لهذا المؤلف بعد."}
+
+        <CardContent className="space-y-1 text-sm text-muted-foreground">
+          {continueTarget ? (
+            <>
+              <div>سيتم فتح آخر درس وصلت له عند الشيخ.</div>
+              <div className="font-medium text-foreground">
+                {continueProgressText}
+              </div>
+            </>
+          ) : (
+            <div>{continueProgressText}</div>
+          )}
         </CardContent>
       </Card>
 

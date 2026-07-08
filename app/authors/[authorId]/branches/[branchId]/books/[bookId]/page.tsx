@@ -24,7 +24,11 @@ import {
   Book,
   Lesson,
 } from "@/lib/catalog";
-import { getOrCreateActiveAttempt, startNewAttempt } from "@/lib/attempts";
+import {
+  getOrCreateActiveAttempt,
+  startNewAttempt,
+  type Attempt,
+} from "@/lib/attempts";
 
 import BreadcrumbNav from "@/components/ui/BreadcrumbNav";
 import LessonRow from "@/components/ui/LessonRow";
@@ -38,7 +42,87 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 
-type ProgMap = Record<string, { completed: boolean; lastPositionSec: number }>;
+type ProgressKind = "time" | "page";
+
+type LessonProgressLite = {
+  completed: boolean;
+  lastPositionSec?: number;
+  lastPageNumber?: number;
+  lastProgressKind?: ProgressKind;
+  updatedAt?: any;
+};
+
+type ProgMap = Record<string, LessonProgressLite>;
+
+type ContinueTarget = {
+  lessonId: string;
+  lastPositionSec?: number;
+  lastPageNumber?: number;
+  lastProgressKind?: ProgressKind;
+};
+
+function toMillis(value: any) {
+  if (!value) return 0;
+
+  if (typeof value.toMillis === "function") {
+    return value.toMillis();
+  }
+
+  if (typeof value.seconds === "number") {
+    return value.seconds * 1000;
+  }
+
+  if (typeof value === "number") {
+    return value;
+  }
+
+  return 0;
+}
+
+function pickLatestAttempt(attempts: Attempt[]) {
+  if (attempts.length === 0) return null;
+
+  return [...attempts].sort((a: any, b: any) => {
+    const bTime = toMillis(b.lastActivityAt) || toMillis(b.startedAt);
+    const aTime = toMillis(a.lastActivityAt) || toMillis(a.startedAt);
+
+    return bTime - aTime;
+  })[0];
+}
+
+function formatSeconds(sec: number) {
+  const safe = Math.max(0, Math.floor(sec));
+
+  if (safe < 60) {
+    return `${safe} ثانية`;
+  }
+
+  const minutes = Math.floor(safe / 60);
+  const seconds = safe % 60;
+
+  if (seconds === 0) {
+    return `${minutes} دقيقة`;
+  }
+
+  return `${minutes} دقيقة و ${seconds} ثانية`;
+}
+
+function getProgressText(target: ContinueTarget | null) {
+  if (!target) return "لا يوجد تقدم محفوظ في هذا الكتاب بعد.";
+
+  if (target.lastProgressKind === "page") {
+    const pageNumber =
+      typeof target.lastPageNumber === "number"
+        ? target.lastPageNumber
+        : typeof target.lastPositionSec === "number"
+          ? target.lastPositionSec
+          : 1;
+
+    return `آخر صفحة ${Math.max(1, Math.floor(pageNumber))}`;
+  }
+
+  return `آخر نقطة ${formatSeconds(target.lastPositionSec ?? 0)}`;
+}
 
 export default function BookPage({
   params,
@@ -57,7 +141,7 @@ export default function BookPage({
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [prog, setProg] = useState<ProgMap>({});
 
-  const [attemptId, setAttemptId] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState<Attempt | null>(null);
 
   const [completedAttemptsCount, setCompletedAttemptsCount] =
     useState<number>(0);
@@ -77,47 +161,90 @@ export default function BookPage({
   // 1) احصل/أنشئ Attempt نشط
   useEffect(() => {
     if (!uid) return;
+
     (async () => {
       const a = await getOrCreateActiveAttempt(uid, authorId, branchId, bookId);
-      setAttemptId(a.id);
+      setAttempt(a);
     })();
   }, [uid, authorId, branchId, bookId]);
 
-  // 2) Listener فوري على progress داخل الـ attempt
+  // 2) Listener على الـ active attempt نفسه
+  // مهم لزر تابع، لأنه يعتمد على lastLessonId / lastPageNumber
   useEffect(() => {
-    if (!uid || !attemptId) return;
+    if (!uid) return;
+
+    const attemptsCol = collection(db, "users", uid, "attempts");
+
+    const qActive = query(
+      attemptsCol,
+      where("authorId", "==", authorId),
+      where("branchId", "==", branchId),
+      where("bookId", "==", bookId),
+      where("status", "==", "active"),
+    );
+
+    const unsub = onSnapshot(qActive, (snap) => {
+      const attempts = snap.docs.map(
+        (d) =>
+          ({
+            id: d.id,
+            ...(d.data() as any),
+          }) as Attempt,
+      );
+
+      setAttempt(pickLatestAttempt(attempts));
+    });
+
+    return () => unsub();
+  }, [uid, authorId, branchId, bookId]);
+
+  // 3) Listener فوري على progress داخل الـ attempt
+  useEffect(() => {
+    if (!uid || !attempt?.id) return;
 
     const progressCol = collection(
       db,
       "users",
       uid,
       "attempts",
-      attemptId,
+      attempt.id,
       "progress",
     );
-    const q = query(progressCol);
 
-    const unsub = onSnapshot(q, (snap) => {
+    const unsub = onSnapshot(query(progressCol), (snap) => {
       const m: ProgMap = {};
+
       snap.docs.forEach((d) => {
         const data = d.data() as any;
+
         m[d.id] = {
           completed: !!data.completed,
-          lastPositionSec: Number(data.lastPositionSec ?? 0),
+          lastPositionSec:
+            typeof data.lastPositionSec === "number"
+              ? Number(data.lastPositionSec)
+              : undefined,
+          lastPageNumber:
+            typeof data.lastPageNumber === "number"
+              ? Number(data.lastPageNumber)
+              : undefined,
+          lastProgressKind: data.lastProgressKind,
+          updatedAt: data.updatedAt,
         };
       });
+
       setProg(m);
     });
 
     return () => unsub();
-  }, [uid, attemptId]);
+  }, [uid, attempt?.id]);
 
-  // 3) عداد الختمات المكتملة لهذا الكتاب
+  // 4) عداد الختمات المكتملة لهذا الكتاب
   useEffect(() => {
     if (!uid) return;
 
     (async () => {
       const attemptsCol = collection(db, "users", uid, "attempts");
+
       const qCompleted = query(
         attemptsCol,
         where("authorId", "==", authorId),
@@ -130,24 +257,63 @@ export default function BookPage({
         const agg = await getCountFromServer(qCompleted);
         setCompletedAttemptsCount(agg.data().count);
       } catch {
-        const unsub = onSnapshot(qCompleted, (snap) => {
-          setCompletedAttemptsCount(snap.size);
-        });
-        return () => unsub();
+        setCompletedAttemptsCount(0);
       }
     })();
   }, [uid, authorId, branchId, bookId]);
 
-  const continueLesson = useMemo(() => {
+  const firstIncompleteLesson = useMemo(() => {
     for (const l of lessons) {
       const p = prog[l.id];
-      if (!p?.completed) return l;
+
+      if (!p?.completed) {
+        return l;
+      }
     }
+
     return lessons[0] ?? null;
   }, [lessons, prog]);
 
+  const latestProgressLessonId = useMemo(() => {
+    const entries = Object.entries(prog);
+
+    if (entries.length === 0) return null;
+
+    const sorted = entries.sort(([, a], [, b]) => {
+      return toMillis(b.updatedAt) - toMillis(a.updatedAt);
+    });
+
+    return sorted[0]?.[0] ?? null;
+  }, [prog]);
+
+  const continueTarget = useMemo<ContinueTarget | null>(() => {
+    const lessonId =
+      attempt?.lastLessonId ?? latestProgressLessonId ?? firstIncompleteLesson?.id;
+
+    if (!lessonId) return null;
+
+    const p = prog[lessonId];
+
+    return {
+      lessonId,
+      lastPositionSec:
+        attempt?.lastLessonId === lessonId
+          ? attempt.lastPositionSec ?? p?.lastPositionSec
+          : p?.lastPositionSec,
+      lastPageNumber:
+        attempt?.lastLessonId === lessonId
+          ? attempt.lastPageNumber ?? p?.lastPageNumber
+          : p?.lastPageNumber,
+      lastProgressKind:
+        attempt?.lastLessonId === lessonId
+          ? attempt.lastProgressKind ?? p?.lastProgressKind
+          : p?.lastProgressKind,
+    };
+  }, [attempt, latestProgressLessonId, firstIncompleteLesson, prog]);
+
   const completedLessonsCount = useMemo(() => {
     if (lessons.length === 0) return 0;
+
     return lessons.reduce(
       (acc, l) => (prog[l.id]?.completed ? acc + 1 : acc),
       0,
@@ -165,15 +331,17 @@ export default function BookPage({
   }, [lessons, prog]);
 
   function handleContinue() {
-    if (!continueLesson) return;
+    if (!continueTarget) return;
+
     router.push(
-      `/authors/${authorId}/branches/${branchId}/books/${bookId}/lessons/${continueLesson.id}`,
+      `/authors/${authorId}/branches/${branchId}/books/${bookId}/lessons/${continueTarget.lessonId}`,
     );
   }
 
   async function handleNewAttempt() {
     if (!uid) return;
     if (!isAttemptCompleted) return;
+
     await startNewAttempt(uid, authorId, branchId, bookId);
     router.push(`/authors/${authorId}/branches/${branchId}/books/${bookId}`);
   }
@@ -189,6 +357,11 @@ export default function BookPage({
       { label: book?.title ?? "..." },
     ],
     [author?.name, branch?.title, book?.title, authorId, branchId],
+  );
+
+  const continueProgressText = useMemo(
+    () => getProgressText(continueTarget),
+    [continueTarget],
   );
 
   return (
@@ -208,7 +381,6 @@ export default function BookPage({
         </CardHeader>
 
         <CardContent className="space-y-4">
-          {/* شريط التقدم */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span>تقدم الكتاب</span>
@@ -219,8 +391,23 @@ export default function BookPage({
             <Progress value={progressPercent} />
           </div>
 
+          <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+            {continueTarget ? (
+              <div className="space-y-1">
+                <div className="text-muted-foreground">
+                  سيتم فتح آخر درس وصلت له في هذا الكتاب.
+                </div>
+                <div className="font-medium">{continueProgressText}</div>
+              </div>
+            ) : (
+              <div className="text-muted-foreground">
+                {continueProgressText}
+              </div>
+            )}
+          </div>
+
           <div className="flex flex-wrap gap-2">
-            <Button onClick={handleContinue} disabled={!continueLesson}>
+            <Button onClick={handleContinue} disabled={!continueTarget}>
               تابع
             </Button>
 
@@ -242,14 +429,19 @@ export default function BookPage({
 
         <CardContent className="space-y-2">
           {lessons.map((l) => {
-            const p = prog[l.id] ?? { completed: false, lastPositionSec: 0 };
+            const p = prog[l.id] ?? { completed: false };
+
             return (
               <LessonRow
                 key={l.id}
                 href={`/authors/${authorId}/branches/${branchId}/books/${bookId}/lessons/${l.id}`}
                 title={l.title}
                 completed={p.completed}
-                lastPositionSec={p.lastPositionSec}
+                lastPositionSec={
+                  p.lastProgressKind === "page"
+                    ? 0
+                    : (p.lastPositionSec ?? 0)
+                }
               />
             );
           })}

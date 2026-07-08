@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,7 @@ type PdfLessonViewerProps = {
   completed: boolean;
   disabled?: boolean;
   onSavePage: (page: number) => Promise<void> | void;
-  onComplete: () => Promise<void> | void;
+  onComplete: (page: number) => Promise<void> | void;
 };
 
 function normalizePage(value: number | string | undefined) {
@@ -35,6 +35,12 @@ export default function PdfLessonViewer({
   const [isSavingPage, setIsSavingPage] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const nextPage = normalizePage(initialPage);
+    setPage(nextPage);
+    setSavedPage(nextPage);
+  }, [initialPage]);
 
   const viewerSrc = useMemo(() => {
     return `${src}#page=${page}&toolbar=1&navpanes=0&view=FitH`;
@@ -67,8 +73,11 @@ export default function PdfLessonViewer({
     setMessage("");
 
     try {
-      await onComplete();
-      setMessage("تم تسجيل إكمال الدرس");
+      const nextPage = normalizePage(page);
+
+      await onComplete(nextPage);
+      setSavedPage(nextPage);
+      setMessage(`تم تسجيل إكمال الدرس عند صفحة ${nextPage}`);
     } catch (error) {
       console.error(error);
       setMessage("تعذر تسجيل إكمال الدرس");

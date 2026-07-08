@@ -9,9 +9,13 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase.client";
 
+export type LessonProgressKind = "time" | "page";
+
 export type LessonProgress = {
-  lastPositionSec: number;
-  completed: boolean;
+  lastPositionSec?: number;
+  lastPageNumber?: number;
+  lastProgressKind?: LessonProgressKind;
+  completed?: boolean;
   updatedAt?: any;
 };
 
@@ -32,12 +36,52 @@ export async function saveLessonProgress(
   lessonId: string,
   patch: Partial<LessonProgress>
 ): Promise<void> {
-  const progressRef = doc(db, "users", uid, "attempts", attemptId, "progress", lessonId);
+  const progressRef = doc(
+    db,
+    "users",
+    uid,
+    "attempts",
+    attemptId,
+    "progress",
+    lessonId
+  );
+
   const attemptRef = doc(db, "users", uid, "attempts", attemptId);
   const userRef = doc(db, "users", uid);
 
   const lastPositionSec =
-    typeof patch.lastPositionSec === "number" ? Math.max(0, Math.floor(patch.lastPositionSec)) : undefined;
+    typeof patch.lastPositionSec === "number"
+      ? Math.max(0, Math.floor(patch.lastPositionSec))
+      : undefined;
+
+  const lastPageNumber =
+    typeof patch.lastPageNumber === "number"
+      ? Math.max(1, Math.floor(patch.lastPageNumber))
+      : undefined;
+
+  const lastProgressKind: LessonProgressKind | undefined =
+    patch.lastProgressKind ??
+    (lastPageNumber !== undefined
+      ? "page"
+      : lastPositionSec !== undefined
+        ? "time"
+        : undefined);
+
+  const cleanPatch: Partial<LessonProgress> = {
+    ...patch,
+  };
+
+  if (lastPositionSec !== undefined) {
+    cleanPatch.lastPositionSec = lastPositionSec;
+  }
+
+  if (lastPageNumber !== undefined) {
+    cleanPatch.lastPageNumber = lastPageNumber;
+  }
+
+  if (lastProgressKind) {
+    cleanPatch.lastProgressKind = lastProgressKind;
+  }
 
   await runTransaction(db, async (tx) => {
     const prevSnap = await tx.get(progressRef);
@@ -46,28 +90,43 @@ export async function saveLessonProgress(
     const wasCompleted = !!prev?.completed;
     const nowCompleted = patch.completed === true;
 
-    // 1) حفظ progress
     tx.set(
       progressRef,
-      { ...patch, updatedAt: serverTimestamp() },
+      {
+        ...cleanPatch,
+        updatedAt: serverTimestamp(),
+      },
       { merge: true }
     );
 
-    // 2) تحديث attempt (لزر تابع)
     const updatePayload: Record<string, any> = {
       lastActivityAt: serverTimestamp(),
       lastLessonId: lessonId,
     };
-    if (lastPositionSec !== undefined) updatePayload.lastPositionSec = lastPositionSec;
-    if (nowCompleted) updatePayload.lastCompletedLessonId = lessonId;
+
+    if (lastPositionSec !== undefined) {
+      updatePayload.lastPositionSec = lastPositionSec;
+      updatePayload.lastProgressKind = "time";
+    }
+
+    if (lastPageNumber !== undefined) {
+      updatePayload.lastPageNumber = lastPageNumber;
+      updatePayload.lastProgressKind = "page";
+    }
+
+    if (nowCompleted) {
+      updatePayload.lastCompletedLessonId = lessonId;
+    }
 
     tx.update(attemptRef, updatePayload);
 
-    // 3) ✅ XP: +10 فقط أول مرة يتحول فيها الدرس إلى completed
     if (nowCompleted && !wasCompleted) {
       tx.set(
         userRef,
-        { xpTotal: increment(10), updatedAt: serverTimestamp() },
+        {
+          xpTotal: increment(10),
+          updatedAt: serverTimestamp(),
+        },
         { merge: true }
       );
     }
